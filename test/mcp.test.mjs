@@ -4,15 +4,28 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import net from "node:net";
 import { fileURLToPath } from "node:url";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
+async function getAvailablePort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
 test("negotiates MCP and changes the persistent scene", async (context) => {
   const dataDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "canvas-relay-protocol-"));
+  const port = await getAvailablePort();
   const child = spawn(process.execPath, [path.join(root, "mcp.mjs")], {
     cwd: root,
-    env: { ...process.env, CANVAS_RELAY_DATA_DIR: dataDirectory },
+    env: { ...process.env, CANVAS_RELAY_DATA_DIR: dataDirectory, PORT: String(port) },
     stdio: ["pipe", "pipe", "pipe"]
   });
   context.after(async () => {
@@ -58,6 +71,10 @@ test("negotiates MCP and changes the persistent scene", async (context) => {
   assert.equal(initialized.result.serverInfo.name, "canvas-relay");
   assert.ok(initialized.result.capabilities.tools);
 
+  const healthResponse = await fetch("http://127.0.0.1:" + port + "/api/health");
+  assert.equal(healthResponse.ok, true);
+  assert.deepEqual(await healthResponse.json(), { ok: true, service: "canvas-relay" });
+
   child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
   const listed = await request(2, "tools/list");
   assert.ok(listed.result.tools.some((tool) => tool.name === "canvas_add_elements"));
@@ -66,6 +83,7 @@ test("negotiates MCP and changes the persistent scene", async (context) => {
   const added = await request(3, "tools/call", {
     name: "canvas_add_elements",
     arguments: {
+      canvasId: "session-alpha",
       author: { name: "Claude" },
       elements: [{ type: "rectangle", x: 80, y: 90, width: 320, height: 180, text: "AI 方框" }]
     }
@@ -73,11 +91,12 @@ test("negotiates MCP and changes the persistent scene", async (context) => {
   assert.equal(added.result.isError, false);
   assert.equal(added.result.structuredContent.revision, 1);
 
-  const scene = await request(4, "tools/call", { name: "canvas_get_scene", arguments: {} });
+  const scene = await request(4, "tools/call", { name: "canvas_get_scene", arguments: { canvasId: "session-alpha" } });
+  assert.equal(scene.result.structuredContent.canvasId, "session-alpha");
   assert.equal(scene.result.structuredContent.elements.length, 1);
   assert.deepEqual(scene.result.structuredContent.elements[0].createdBy, { type: "ai", name: "Claude" });
 
-  const view = await request(5, "tools/call", { name: "canvas_get_view", arguments: {} });
+  const view = await request(5, "tools/call", { name: "canvas_get_view", arguments: { canvasId: "session-alpha" } });
   assert.equal(view.result.isError, false);
   assert.equal(view.result.structuredContent.mimeType, "image/svg+xml");
   assert.equal(view.result.structuredContent.elementCount, 1);
@@ -86,9 +105,22 @@ test("negotiates MCP and changes the persistent scene", async (context) => {
   const svg = Buffer.from(image.data, "base64").toString("utf8");
   assert.match(svg, /^<svg /);
   assert.match(svg, /AI 方框/);
+  assert.match(svg, /Claude/);
 
-  const resources = await request(6, "resources/list");
+  const cleanView = await request(6, "tools/call", {
+    name: "canvas_get_view",
+    arguments: { canvasId: "session-alpha", includeAuthors: false }
+  });
+  const cleanImage = cleanView.result.content.find((item) => item.type === "image");
+  const cleanSvg = Buffer.from(cleanImage.data, "base64").toString("utf8");
+  assert.match(cleanSvg, /AI 方框/);
+  assert.doesNotMatch(cleanSvg, /Claude/);
+
+  const defaultScene = await request(7, "tools/call", { name: "canvas_get_scene", arguments: {} });
+  assert.equal(defaultScene.result.structuredContent.elements.length, 0);
+
+  const resources = await request(8, "resources/list");
   assert.ok(resources.result.resources.some((resource) => resource.uri === "canvas://view/current.svg"));
-  const viewResource = await request(7, "resources/read", { uri: "canvas://view/current.svg" });
+  const viewResource = await request(9, "resources/read", { uri: "canvas://view/current.svg" });
   assert.match(viewResource.result.contents[0].text, /^<svg /);
 });

@@ -18,25 +18,43 @@ Canvas Relay は、人と MCP 対応の AI アシスタントが共同で操作�
 - 繁体字中国語、英語、日本語のインターフェース。
 - ローカル専用 HTTP サーバー、同一オリジン検証、制限されたコンテンツセキュリティポリシー。
 
-## 必要環境
+## インストール
 
-- Node.js 20 以降。
-- デスクトップブラウザー。
-- 任意：ローカルの標準入出力サーバーを起動できる MCP クライアント。
-
-## クイックスタート
+Node.js 20 以降とデスクトップブラウザーが必要です。
 
 ```powershell
-npm start
+node --version
+git clone https://github.com/rncchen/canvas-relay.git
+Set-Location canvas-relay
 ```
 
-デスクトップブラウザーで `http://127.0.0.1:4173` を開きます。
+外部の実行時パッケージはないため、`npm install` は不要です。設定後は MCP クライアントが `mcp.mjs` を起動し、ブラウザーサーバーも [http://127.0.0.1:4173](http://127.0.0.1:4173) で自動的に起動します。
 
-サーバーは実行時データディレクトリを自動的に作成します。現在は外部依存関係がないため、事前のパッケージインストールは不要です。
+通常は `npm start` を別途実行する必要はありません。MCP クライアントなしでブラウザーキャンバスだけを使う場合、または自動起動の問題を調査する場合にのみ使用します。
 
-## MCP クライアントへの接続
+## Codex に MCP サーバーを追加
 
-Node.js で `mcp.mjs` を起動するように MCP クライアントを設定します。クライアントによってプロセスの作業ディレクトリが異なるため、絶対パスの使用を推奨します。
+実際の絶対パスに置き換えて、リポジトリのルートで実行します。
+
+```powershell
+codex mcp add canvas-relay -- node "C:\absolute\path\to\canvas-relay\mcp.mjs"
+codex mcp list
+```
+
+追加後は Codex を再起動するか、新しいセッションを開始します。
+
+## Claude Code に MCP サーバーを追加
+
+```powershell
+claude mcp add --transport stdio --scope user canvas-relay -- node 'C:\absolute\path\to\canvas-relay\mcp.mjs'
+claude mcp list
+```
+
+新しい Claude Code セッションで `/mcp` を実行して接続を確認します。プロジェクト固有のスキルは `.claude/skills/use-canvas-relay/SKILL.md` にあります。詳細は [Claude Code MCP 公式ドキュメント](https://code.claude.com/docs/en/mcp) と [Skills 公式ドキュメント](https://code.claude.com/docs/en/slash-commands) を参照してください。
+
+## Claude Desktop に MCP サーバーを追加
+
+**Settings → Developer → Edit Config** を開きます。Windows では `%APPDATA%\Claude\claude_desktop_config.json` に次の設定を追加します。
 
 ```json
 {
@@ -52,15 +70,33 @@ Node.js で `mcp.mjs` を起動するように MCP クライアントを設定�
 }
 ```
 
+保存後、Claude Desktop を完全に終了して再起動します。
+
+設定画面とパスの詳細は [MCP 公式 Claude Desktop チュートリアル](https://modelcontextprotocol.io/docs/develop/connect-local-servers) を参照してください。
+
 リポジトリ直下の `.mcp.json` には環境固有の絶対パスが含まれるため、Git の対象外です。
+
+## スキルとブラウザー検証
+
+リポジトリには Codex 用の `.agents/skills/use-canvas-relay/SKILL.md` と Claude Code 用の `.claude/skills/use-canvas-relay/SKILL.md` が含まれます。表示されない場合はクライアントを再起動してください。
+
+スキルは会話ごとに固有の `canvasId` を使い、完成後に `http://127.0.0.1:4173/?canvas=<canvasId>` をブラウザーで開いて確認します。ローカルページを実際に検証するには、ChatGPT / Codex の Browser 設定で組み込み Browser プラグインを有効にします。
+
+## セッションと作成者ラベル
+
+会話ごとに異なる `canvasId` を使い、同じ会話内のすべての MCP ツール呼び出しでは同じ値を維持します。ブラウザー URL の `canvas` パラメーターにも同じ値を指定します。
+
+作成者ラベルは既定で非表示です。必要な場合は左上の「作成者ラベル」を有効にします。MCP でラベルのないプレビューを取得する場合は、`canvas_get_view` に `includeAuthors: false` を指定します。
 
 ## 推奨されるエージェントの操作手順
 
-1. キャンバスを変更する前に `canvas_get_scene` を呼び出します。
-2. レイアウト、重なり、視覚密度、手描き内容を確認するときは `canvas_get_view` を呼び出します。
-3. 要素の追加や更新は可能な限りまとめて実行します。
-4. ユーザーが明示的に依頼しない限り、既存の内容を保持し、消去や全消去を行いません。
-5. キャンバス操作を取り消す必要がある場合は `canvas_undo` を使用します。
+1. 会話ごとに固有の `canvasId` を決め、すべてのツール呼び出しで再利用します。
+2. キャンバスを変更する前に `canvas_get_scene` を呼び出します。
+3. レイアウト、重なり、視覚密度、手描き内容を確認するときは `canvas_get_view` を呼び出します。
+4. 要素の追加や更新は可能な限りまとめて実行します。
+5. ユーザーが明示的に依頼しない限り、既存の内容を保持し、消去や全消去を行いません。
+6. キャンバス操作を取り消す必要がある場合は `canvas_undo` を使用します。
+7. 完成前に対応するブラウザー URL を開き、作成者ラベルを隠して実際のレイアウトを確認します。
 
 ## MCP ツール
 
@@ -82,7 +118,7 @@ MCP サーバーは次のリソースも公開します。
 
 ## データと設定
 
-実行時の状態は、既定で `data/scene.json` と `data/history.json` に保存されます。どちらも Git の対象外です。
+識別子を指定しない既定のキャンバスは `data/scene.json` と `data/history.json` に保存されます。名前付きセッションは `data/canvases/<canvasId>/scene.json` と `history.json` に保存されます。すべて Git の対象外です。
 
 | 環境変数 | 既定値 | 用途 |
 | --- | --- | --- |

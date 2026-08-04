@@ -2,7 +2,7 @@ import http from "node:http";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { applyCommand, readScene } from "./lib/scene-store.mjs";
+import { applyCommand, normalizeCanvasId, readScene } from "./lib/scene-store.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, "public");
@@ -44,6 +44,10 @@ function validOrigin(request) {
   return origin === `http://${HOST}:${PORT}` || origin === `http://localhost:${PORT}`;
 }
 
+function canvasIdFromUrl(url) {
+  return normalizeCanvasId(url.searchParams.get("canvas") || "default");
+}
+
 async function serveStatic(request, response) {
   const url = new URL(request.url, `http://${HOST}:${PORT}`);
   const requestedPath = url.pathname === "/" ? "/index.html" : url.pathname;
@@ -76,49 +80,68 @@ async function serveStatic(request, response) {
   }
 }
 
-const server = http.createServer(async (request, response) => {
-  try {
-    if (!validOrigin(request)) {
-      sendJson(response, 403, { error: "不允許的來源。" });
-      return;
-    }
+export function createCanvasRelayServer() {
+  return http.createServer(async (request, response) => {
+    try {
+      if (!validOrigin(request)) {
+        sendJson(response, 403, { error: "不允許的來源。" });
+        return;
+      }
 
-    const url = new URL(request.url, `http://${HOST}:${PORT}`);
-    if (request.method === "GET" && url.pathname === "/api/health") {
-      sendJson(response, 200, { ok: true, service: "canvas-relay" });
-      return;
-    }
+      const url = new URL(request.url, `http://${HOST}:${PORT}`);
+      if (request.method === "GET" && url.pathname === "/api/health") {
+        sendJson(response, 200, { ok: true, service: "canvas-relay" });
+        return;
+      }
 
-    if (request.method === "GET" && url.pathname === "/api/scene") {
-      sendJson(response, 200, await readScene());
-      return;
-    }
+      if (request.method === "GET" && url.pathname === "/api/scene") {
+        sendJson(response, 200, await readScene(canvasIdFromUrl(url)));
+        return;
+      }
 
-    if (request.method === "POST" && url.pathname === "/api/commands") {
-      const command = await readBody(request);
-      command.author = { type: "human", name: command.author?.name || "你" };
-      const result = await applyCommand(command, { authorType: "human" });
-      sendJson(response, 200, result);
-      return;
-    }
+      if (request.method === "POST" && url.pathname === "/api/commands") {
+        const command = await readBody(request);
+        command.author = { type: "human", name: command.author?.name || "你" };
+        const result = await applyCommand(command, {
+          authorType: "human",
+          canvasId: canvasIdFromUrl(url)
+        });
+        sendJson(response, 200, result);
+        return;
+      }
 
-    if (!["GET", "HEAD"].includes(request.method)) {
-      response.writeHead(405, { Allow: "GET, HEAD, POST" });
-      response.end();
-      return;
-    }
+      if (!["GET", "HEAD"].includes(request.method)) {
+        response.writeHead(405, { Allow: "GET, HEAD, POST" });
+        response.end();
+        return;
+      }
 
-    await serveStatic(request, response);
-  } catch (error) {
-    const status = error.code === "REVISION_CONFLICT" ? 409 : 400;
-    sendJson(response, status, { error: error.message || "發生未預期錯誤。" });
+      await serveStatic(request, response);
+    } catch (error) {
+      const status = error.code === "REVISION_CONFLICT" ? 409 : 400;
+      sendJson(response, status, { error: error.message || "發生未預期錯誤。" });
+    }
+  });
+}
+
+export function startCanvasRelayServer(options = {}) {
+  const logger = options.logger || console.log;
+  const server = createCanvasRelayServer();
+  return new Promise((resolve, reject) => {
+    const handleError = (error) => reject(error);
+    server.once("error", handleError);
+    server.listen(PORT, HOST, () => {
+      server.off("error", handleError);
+      logger(`Canvas Relay 已啟動：http://${HOST}:${PORT}`);
+      resolve(server);
+    });
+  });
+}
+
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMainModule) {
+  const server = await startCanvasRelayServer();
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => server.close(() => process.exit(0)));
   }
-});
-
-server.listen(PORT, HOST, () => {
-  console.log(`Canvas Relay 已啟動：http://${HOST}:${PORT}`);
-});
-
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => server.close(() => process.exit(0)));
 }

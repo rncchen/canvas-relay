@@ -15,7 +15,10 @@
           <div class="brand-mark" aria-hidden="true">板</div>
           <div>
             <div class="brand-name" data-i18n="brand.name">Canvas Relay</div>
-            <button class="canvas-name" id="canvas-name" type="button" title="重新命名畫布" data-i18n="canvas.loading" data-i18n-title="canvas.renameTitle">載入中</button>
+            <div class="canvas-meta">
+              <button class="canvas-name" id="canvas-name" type="button" title="重新命名畫布" data-i18n="canvas.loading" data-i18n-title="canvas.renameTitle">載入中</button>
+              <span class="canvas-session" id="canvas-session"></span>
+            </div>
           </div>
         </div>
 
@@ -54,6 +57,7 @@
             <span class="result-filter-title" data-i18n="layers.visibility">顯示結果</span>
             <label><input type="checkbox" id="show-human" checked><span class="filter-sample human-sample"></span><span data-i18n="layers.human">人類繪製</span></label>
             <label><input type="checkbox" id="show-ai" checked><span class="filter-sample ai-sample"></span><span data-i18n="layers.ai">AI 繪製</span></label>
+            <label><input type="checkbox" id="show-authors"><span data-i18n="layers.authors">作者標籤</span></label>
           </div>
 
           <div class="property-bar" aria-label="繪圖屬性" data-i18n-aria="property.aria">

@@ -1,0 +1,4 @@
+interface:
+  display_name: "使用 Canvas Relay"
+  short_description: "以獨立工作階段操作共編畫布，並開啟瀏覽器檢查與交付成果"
+  default_prompt: "使用 $use-canvas-relay 在獨立畫布完成圖面，隱藏作者標籤並開啟瀏覽器驗證。"

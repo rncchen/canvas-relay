@@ -1,8 +1,41 @@
 import readline from "node:readline";
 import { applyCommand, elementTypes, getDataPaths, readScene } from "./lib/scene-store.mjs";
+import { startCanvasRelayServer } from "./server.mjs";
 
 const LATEST_PROTOCOL = "2025-11-25";
 const SUPPORTED_PROTOCOLS = new Set([LATEST_PROTOCOL, "2025-06-18", "2025-03-26", "2024-11-05"]);
+const DEFAULT_CANVAS_ID = process.env.CANVAS_RELAY_CANVAS_ID || "default";
+const BROWSER_URL = `http://127.0.0.1:${Number(process.env.PORT || 4173)}`;
+
+async function isCanvasRelayRunning() {
+  try {
+    const response = await fetch(`${BROWSER_URL}/api/health`, {
+      signal: AbortSignal.timeout(1000)
+    });
+    if (!response.ok) return false;
+    const body = await response.json();
+    return body.ok === true && body.service === "canvas-relay";
+  } catch {
+    return false;
+  }
+}
+
+async function ensureBrowserServer() {
+  try {
+    return await startCanvasRelayServer({
+      logger: (message) => process.stderr.write(`${message}\n`)
+    });
+  } catch (error) {
+    if (error.code === "EADDRINUSE" && await isCanvasRelayRunning()) {
+      process.stderr.write(`Canvas Relay 沿用既有瀏覽器伺服器：${BROWSER_URL}\n`);
+      return null;
+    }
+    process.stderr.write(`Canvas Relay 無法啟動瀏覽器伺服器：${error.message}\n`);
+    return null;
+  }
+}
+
+const browserServer = await ensureBrowserServer();
 
 const authorSchema = {
   type: "object",
@@ -10,6 +43,12 @@ const authorSchema = {
   properties: {
     name: { type: "string", description: "顯示在畫布上的 AI 名稱，例如 Claude 或 Codex。" }
   }
+};
+
+const canvasIdSchema = {
+  type: "string",
+  description: "目前對話使用的畫布識別碼。不同工作階段應使用不同值，並在同一工作階段的所有工具呼叫中保持一致。",
+  pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"
 };
 
 const elementSchema = {
@@ -146,7 +185,7 @@ const tools = [
     name: "canvas_get_scene",
     title: "讀取共編畫布",
     description: "讀取目前畫布的來源元素、修改與擦除效果、依建立者分類的合成結果、版本與活動紀錄。新增內容前應先呼叫此工具，避免覆蓋既有討論。",
-    inputSchema: { type: "object", properties: {} },
+    inputSchema: { type: "object", properties: { canvasId: canvasIdSchema } },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
   },
   {
@@ -156,6 +195,7 @@ const tools = [
     inputSchema: {
       type: "object",
       properties: {
+        canvasId: canvasIdSchema,
         includeAuthors: { type: "boolean", description: "是否在元素旁顯示建立者標籤，預設為 true。" }
       }
     },
@@ -169,6 +209,7 @@ const tools = [
       type: "object",
       required: ["elements"],
       properties: {
+        canvasId: canvasIdSchema,
         author: authorSchema,
         detail: { type: "string", description: "這次修改的簡短目的，會顯示於活動紀錄。" },
         elements: { type: "array", minItems: 1, maxItems: 200, items: elementSchema }
@@ -184,6 +225,7 @@ const tools = [
       type: "object",
       required: ["updates"],
       properties: {
+        canvasId: canvasIdSchema,
         author: authorSchema,
         detail: { type: "string" },
         updates: {
@@ -211,6 +253,7 @@ const tools = [
       type: "object",
       required: ["ids"],
       properties: {
+        canvasId: canvasIdSchema,
         author: authorSchema,
         detail: { type: "string" },
         ids: { type: "array", minItems: 1, maxItems: 200, items: { type: "string" } }
@@ -222,21 +265,21 @@ const tools = [
     name: "canvas_undo",
     title: "復原畫布操作",
     description: "復原上一筆人類或 AI 的畫布操作。",
-    inputSchema: { type: "object", properties: { author: authorSchema } },
+    inputSchema: { type: "object", properties: { canvasId: canvasIdSchema, author: authorSchema } },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   },
   {
     name: "canvas_redo",
     title: "重做畫布操作",
     description: "重做上一筆被復原的畫布操作。",
-    inputSchema: { type: "object", properties: { author: authorSchema } },
+    inputSchema: { type: "object", properties: { canvasId: canvasIdSchema, author: authorSchema } },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   },
   {
     name: "canvas_clear",
     title: "清空畫布",
     description: "由 AI 行為層擦除目前全部可見元素，仍可用 canvas_undo 復原。只有使用者明確要求清空時才呼叫。",
-    inputSchema: { type: "object", properties: { author: authorSchema, detail: { type: "string" } } },
+    inputSchema: { type: "object", properties: { canvasId: canvasIdSchema, author: authorSchema, detail: { type: "string" } } },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
   }
 ];
@@ -259,6 +302,7 @@ function toolResult(result) {
     structuredContent: {
       changed: result.changed,
       count: result.count || 0,
+      canvasId: result.scene.canvasId,
       revision: result.scene.revision,
       updatedAt: result.scene.updatedAt
     },
@@ -268,8 +312,9 @@ function toolResult(result) {
 
 async function callTool(name, args = {}) {
   const author = { type: "ai", name: args.author?.name || "AI 助手" };
+  const canvasId = args.canvasId || DEFAULT_CANVAS_ID;
   if (name === "canvas_get_scene") {
-    const scene = await readScene();
+    const scene = await readScene(canvasId);
     return {
       content: [{ type: "text", text: JSON.stringify(scene, null, 2) }],
       structuredContent: scene,
@@ -277,7 +322,7 @@ async function callTool(name, args = {}) {
     };
   }
   if (name === "canvas_get_view") {
-    const scene = await readScene();
+    const scene = await readScene(canvasId);
     const view = renderSceneSvg(scene, args.includeAuthors !== false);
     return {
       content: [
@@ -286,6 +331,7 @@ async function callTool(name, args = {}) {
         { type: "resource", resource: { uri: "canvas://view/current.svg", mimeType: "image/svg+xml", text: view.svg } }
       ],
       structuredContent: {
+        canvasId: scene.canvasId,
         revision: scene.revision,
         elementCount: view.elementCount,
         viewBox: view.viewBox,
@@ -294,12 +340,12 @@ async function callTool(name, args = {}) {
       isError: false
     };
   }
-  if (name === "canvas_add_elements") return toolResult(await applyCommand({ action: "add", elements: args.elements, author, detail: args.detail }));
-  if (name === "canvas_update_elements") return toolResult(await applyCommand({ action: "update", updates: args.updates, author, detail: args.detail }));
-  if (name === "canvas_delete_elements") return toolResult(await applyCommand({ action: "delete", ids: args.ids, author, detail: args.detail }));
-  if (name === "canvas_undo") return toolResult(await applyCommand({ action: "undo", author }));
-  if (name === "canvas_redo") return toolResult(await applyCommand({ action: "redo", author }));
-  if (name === "canvas_clear") return toolResult(await applyCommand({ action: "clear", author, detail: args.detail }));
+  if (name === "canvas_add_elements") return toolResult(await applyCommand({ action: "add", elements: args.elements, author, detail: args.detail }, { canvasId }));
+  if (name === "canvas_update_elements") return toolResult(await applyCommand({ action: "update", updates: args.updates, author, detail: args.detail }, { canvasId }));
+  if (name === "canvas_delete_elements") return toolResult(await applyCommand({ action: "delete", ids: args.ids, author, detail: args.detail }, { canvasId }));
+  if (name === "canvas_undo") return toolResult(await applyCommand({ action: "undo", author }, { canvasId }));
+  if (name === "canvas_redo") return toolResult(await applyCommand({ action: "redo", author }, { canvasId }));
+  if (name === "canvas_clear") return toolResult(await applyCommand({ action: "clear", author, detail: args.detail }, { canvasId }));
   const error = new Error(`找不到工具：${name}`);
   error.code = -32602;
   throw error;
@@ -323,7 +369,7 @@ async function handle(message) {
           version: "0.1.0",
           description: "讓人類與 AI 在持久化白板上延續討論。"
         },
-        instructions: "先呼叫 canvas_get_scene 取得來源元素、效果、目前結果與合成座標；需要理解版面、重疊或手繪內容時，再呼叫 canvas_get_view 直接查看畫面。顯示圖層依目前可見元素的原始建立者分類，所有修改與擦除效果會先套用，不因隱藏 AI 或人類繪製結果而取消。除非使用者明確要求，請勿擦除或清空。"
+        instructions: "每個對話先選定一個穩定且唯一的 canvasId，並在該對話的所有畫布工具呼叫中使用同一值，避免不同工作階段共用畫面。修改前先呼叫 canvas_get_scene；需要理解版面或手繪內容時呼叫 canvas_get_view。交付成品時以 includeAuthors=false 隱藏作者標籤；若有瀏覽器控制技能，再開啟對應的 http://127.0.0.1:4173/?canvas=<canvasId> 做實際檢視。除非使用者明確要求，請勿擦除或清空。"
       });
       return;
     }
@@ -359,12 +405,12 @@ async function handle(message) {
       return;
     }
     if (method === "resources/read" && params.uri === "canvas://scene/current") {
-      const scene = await readScene();
+      const scene = await readScene(DEFAULT_CANVAS_ID);
       success(id, { contents: [{ uri: params.uri, mimeType: "application/json", text: JSON.stringify(scene, null, 2) }] });
       return;
     }
     if (method === "resources/read" && params.uri === "canvas://view/current.svg") {
-      const scene = await readScene();
+      const scene = await readScene(DEFAULT_CANVAS_ID);
       const view = renderSceneSvg(scene);
       success(id, { contents: [{ uri: params.uri, mimeType: "image/svg+xml", text: view.svg }] });
       return;
@@ -393,4 +439,8 @@ input.on("line", async (line) => {
   }
 });
 
-process.stderr.write(`Canvas Relay 使用場景檔：${getDataPaths().scenePath}\n`);
+input.on("close", () => {
+  if (browserServer) browserServer.close();
+});
+
+process.stderr.write(`Canvas Relay 預設畫布：${getDataPaths(DEFAULT_CANVAS_ID).scenePath}\n`);

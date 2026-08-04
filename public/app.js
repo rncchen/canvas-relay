@@ -8,6 +8,7 @@ const TRANSLATIONS = {
     "brand.name": "Canvas Relay",
     "canvas.loading": "載入中",
     "canvas.renameTitle": "重新命名畫布",
+    "canvas.session": "工作階段：{id}",
     "legend.aria": "作者辨識圖例",
     "legend.human": "人類行為層",
     "legend.ai": "AI 行為層",
@@ -72,6 +73,7 @@ const TRANSLATIONS = {
     "layers.visibility": "顯示結果",
     "layers.human": "人類繪製",
     "layers.ai": "AI 繪製",
+    "layers.authors": "作者標籤",
     "layers.help": "僅篩選目前結果的建立者，修改與擦除仍維持合成。",
     "selection.title": "選取項目",
     "selection.empty": "選取元素後，可在這裡檢查作者與調整內容。",
@@ -135,6 +137,7 @@ const TRANSLATIONS = {
     "brand.name": "Canvas Relay",
     "canvas.loading": "Loading",
     "canvas.renameTitle": "Rename canvas",
+    "canvas.session": "Session: {id}",
     "legend.aria": "Author legend",
     "legend.human": "Human layer",
     "legend.ai": "AI layer",
@@ -199,6 +202,7 @@ const TRANSLATIONS = {
     "layers.visibility": "Show results",
     "layers.human": "Drawn by people",
     "layers.ai": "Drawn by AI",
+    "layers.authors": "Author labels",
     "layers.help": "Filters current results by creator. Edits and erasures remain applied.",
     "selection.title": "Selection",
     "selection.empty": "Select an element to inspect its author and edit its content.",
@@ -262,6 +266,7 @@ const TRANSLATIONS = {
     "brand.name": "Canvas Relay",
     "canvas.loading": "読み込み中",
     "canvas.renameTitle": "キャンバス名を変更",
+    "canvas.session": "セッション：{id}",
     "legend.aria": "作成者の凡例",
     "legend.human": "人の操作レイヤー",
     "legend.ai": "AI 操作レイヤー",
@@ -326,6 +331,7 @@ const TRANSLATIONS = {
     "layers.visibility": "結果を表示",
     "layers.human": "人が作成",
     "layers.ai": "AI が作成",
+    "layers.authors": "作成者ラベル",
     "layers.help": "現在の結果を作成者で絞り込みます。編集と消去はそのまま適用されます。",
     "selection.title": "選択項目",
     "selection.empty": "要素を選択すると、作成者の確認と内容の編集ができます。",
@@ -385,6 +391,8 @@ const TRANSLATIONS = {
   }
 };
 
+const CANVAS_ID = new URLSearchParams(window.location.search).get("canvas") || "default";
+
 function detectLanguage() {
   const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
   if (Object.hasOwn(TRANSLATIONS, saved)) return saved;
@@ -404,6 +412,7 @@ const dom = {
   sync: document.querySelector("#sync-state"),
   toast: document.querySelector("#toast"),
   canvasName: document.querySelector("#canvas-name"),
+  canvasSession: document.querySelector("#canvas-session"),
   revision: document.querySelector("#revision-label"),
   activity: document.querySelector("#activity-list"),
   selectionEmpty: document.querySelector("#selection-empty"),
@@ -424,6 +433,7 @@ const state = {
   view: { x: 0, y: 0, scale: 1 },
   style: { stroke: "#20242c", strokeWidth: 2, fontSize: 24, fill: false },
   filters: { human: true, ai: true },
+  showAuthorLabels: false,
   spacePressed: false,
   hasFitted: false,
   editorContext: null,
@@ -453,6 +463,7 @@ function applyLanguage() {
     element.title = t(element.dataset.i18nTitle);
   });
   dom.language.value = state.language;
+  dom.canvasSession.textContent = t("canvas.session", { id: CANVAS_ID });
   if (state.scene) render();
 }
 
@@ -485,7 +496,9 @@ function showToast(message, type = "info") {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
+  const url = new URL(path, window.location.origin);
+  url.searchParams.set("canvas", CANVAS_ID);
+  const response = await fetch(`${url.pathname}${url.search}`, {
     ...options,
     headers: { "Content-Type": "application/json", ...(options.headers || {}) }
   });
@@ -706,7 +719,7 @@ function renderElement(element, options = {}) {
     appendText(group, element, bounds, element.stroke || "#20242c");
   }
 
-  if (!options.draft) appendAuthorChip(group, element, bounds);
+  if (!options.draft && state.showAuthorLabels) appendAuthorChip(group, element, bounds);
   return group;
 }
 
@@ -1179,6 +1192,7 @@ function bindEvents() {
   document.querySelector("#fill-toggle").addEventListener("change", (event) => state.style.fill = event.target.checked);
   document.querySelector("#show-human").addEventListener("change", (event) => { state.filters.human = event.target.checked; render(); });
   document.querySelector("#show-ai").addEventListener("change", (event) => { state.filters.ai = event.target.checked; render(); });
+  document.querySelector("#show-authors").addEventListener("change", (event) => { state.showAuthorLabels = event.target.checked; render(); });
   dom.language.addEventListener("change", (event) => {
     state.language = event.target.value;
     localStorage.setItem(LANGUAGE_STORAGE_KEY, state.language);
@@ -1292,11 +1306,17 @@ function bindEvents() {
 
 function exposeBrowserApi() {
   window.CanvasRelay = {
+    canvasId: CANVAS_ID,
     getScene: () => structuredClone(state.scene),
     addElements: (elements, detail = t("browser.addDetail")) => runCommand({ action: "add", elements, detail }),
     updateElements: (updates, detail = t("browser.updateDetail")) => runCommand({ action: "update", updates, detail }),
     deleteElements,
-    fitView
+    fitView,
+    setAuthorLabels: (visible) => {
+      state.showAuthorLabels = Boolean(visible);
+      document.querySelector("#show-authors").checked = state.showAuthorLabels;
+      render();
+    }
   };
 }
 

@@ -13,10 +13,20 @@ coverage/
 .DS_Store
 Thumbs.db
 
+# Shared Claude Code skill
+!.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/use-canvas-relay/
+.claude/skills/use-canvas-relay/*
+!.claude/skills/use-canvas-relay/SKILL.md
+
 # Runtime canvas state
 data/scene.json
 data/history.json
 data/.scene.lock
+data/canvases/
 data/*.tmp
 data/*.json.*.tmp
 

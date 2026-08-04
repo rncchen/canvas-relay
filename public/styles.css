@@ -137,6 +137,22 @@ summary:focus-visible,
   cursor: text;
 }
 
+.canvas-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.canvas-session {
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .top-actions {
   display: flex;
   align-items: center;

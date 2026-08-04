@@ -23,17 +23,17 @@ The runtime `data/` directory is intentionally absent from version control. It i
 ## Commands
 
 ```powershell
-# Start the browser application
+# Start only the browser application
 npm start
 
-# Start the MCP server manually
+# Start the MCP server and its browser application
 npm run mcp
 
 # Run all tests
 npm test
 ```
 
-The default browser URL is `http://127.0.0.1:4173`.
+The default browser URL is `http://127.0.0.1:4173`. Use `http://127.0.0.1:4173/?canvas=<canvasId>` when testing a named session. Normal MCP clients launch `mcp.mjs`, which starts the HTTP server automatically; `npm start` is only needed for browser-only development or startup troubleshooting.
 
 ## Development principles
 
@@ -76,6 +76,8 @@ Check the following:
 - Drawing, selecting, moving, resizing, duplicating, editing, and erasing work.
 - Pan and zoom preserve pointer alignment.
 - Human and AI visibility filters produce the expected composite result.
+- Author labels can be shown independently and are hidden by default.
+- Different `canvasId` values keep elements, revisions, and undo history isolated.
 - Undo and redo work across browser and MCP operations.
 - JSON and SVG exports download successfully.
 - Long scene names and activity entries do not break the layout.

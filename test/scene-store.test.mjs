@@ -6,7 +6,7 @@ import path from "node:path";
 
 const testDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "canvas-relay-store-"));
 process.env.CANVAS_RELAY_DATA_DIR = testDirectory;
-const { applyCommand, composeLayers, readScene } = await import(`../lib/scene-store.mjs?test=${Date.now()}`);
+const { applyCommand, composeLayers, getDataPaths, readScene } = await import(`../lib/scene-store.mjs?test=${Date.now()}`);
 
 test.after(async () => {
   await fs.rm(testDirectory, { recursive: true, force: true });
@@ -81,4 +81,34 @@ test("keeps erasure applied while filtering the current result by creator", asyn
   assert.equal(aiLayerOnly.elements[0].text, "AI 新增的 B");
   assert.deepEqual(continued.scene.layers.human.elementIds, []);
   assert.deepEqual(continued.scene.layers.ai.elementIds, [aiLayerOnly.elements[0].id]);
+});
+
+test("isolates scenes and history by canvas id", async () => {
+  const first = await applyCommand({
+    action: "add",
+    author: { type: "ai", name: "Codex" },
+    elements: [{ type: "text", x: 40, y: 50, text: "第一個工作階段" }]
+  }, { canvasId: "session-one" });
+  const second = await applyCommand({
+    action: "add",
+    author: { type: "ai", name: "Codex" },
+    elements: [{ type: "text", x: 60, y: 70, text: "第二個工作階段" }]
+  }, { canvasId: "session-two" });
+
+  assert.equal(first.scene.canvasId, "session-one");
+  assert.equal(second.scene.canvasId, "session-two");
+  assert.equal((await readScene("session-one")).elements[0].text, "第一個工作階段");
+  assert.equal((await readScene("session-two")).elements[0].text, "第二個工作階段");
+  assert.notEqual(getDataPaths("session-one").scenePath, getDataPaths("session-two").scenePath);
+
+  const undone = await applyCommand({
+    action: "undo",
+    author: { type: "ai", name: "Codex" }
+  }, { canvasId: "session-one" });
+  assert.equal(undone.scene.elements.length, 0);
+  assert.equal((await readScene("session-two")).elements.length, 1);
+});
+
+test("rejects unsafe canvas ids", async () => {
+  await assert.rejects(() => readScene("../shared"), /畫布識別碼/);
 });
