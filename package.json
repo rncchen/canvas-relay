@@ -1,0 +1,15 @@
+{
+  "name": "canvas-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Persistent whiteboard shared by people and MCP-capable AI tools",
+  "scripts": {
+    "start": "node server.mjs",
+    "mcp": "node mcp.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

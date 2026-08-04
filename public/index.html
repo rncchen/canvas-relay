@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="讓人類與 AI 在同一張持久化白板上持續討論。">
+    <title>Canvas Relay</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23fffef9'/%3E%3Cpath d='M13 14h38v36H13z' fill='none' stroke='%2320242c' stroke-width='4'/%3E%3Cpath d='M20 26c8-5 16 5 25-2M20 36c7 4 15-3 24 1' fill='none' stroke='%232459d3' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">板</div>
+          <div>
+            <div class="brand-name" data-i18n="brand.name">Canvas Relay</div>
+            <button class="canvas-name" id="canvas-name" type="button" title="重新命名畫布" data-i18n="canvas.loading" data-i18n-title="canvas.renameTitle">載入中</button>
+          </div>
+        </div>
+
+        <div class="top-actions">
+          <select class="language-select" id="language-select" aria-label="介面語言" data-i18n-aria="language.aria">
+            <option value="zh-Hant">繁中</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+          </select>
+          <div class="sync-state" id="sync-state" role="status"><span class="sync-indicator"></span><span data-i18n="sync.connecting">正在連線</span></div>
+          <button class="quiet-button" id="undo-button" type="button" title="復原 Ctrl+Z" data-i18n="actions.undo" data-i18n-title="actions.undoTitle">復原</button>
+          <button class="quiet-button" id="redo-button" type="button" title="重做 Ctrl+Y" data-i18n="actions.redo" data-i18n-title="actions.redoTitle">重做</button>
+          <button class="quiet-button" id="export-json" type="button" data-i18n="actions.exportJson">匯出 JSON</button>
+          <button class="quiet-button" id="export-svg" type="button" data-i18n="actions.exportSvg">匯出 SVG</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <nav class="tool-rail" aria-label="白板工具" data-i18n-aria="tools.aria">
+          <button class="tool-button active" data-tool="select" type="button" aria-pressed="true" data-i18n-title="tools.select"><span class="tool-icon icon-select" aria-hidden="true"></span><span class="tool-label" data-i18n="tools.select">選取</span><kbd>V</kbd></button>
+          <button class="tool-button" data-tool="pan" type="button" aria-pressed="false" data-i18n-title="tools.pan"><span class="tool-icon icon-pan" aria-hidden="true"></span><span class="tool-label" data-i18n="tools.pan">手掌</span><kbd>H</kbd></button>
+          <button class="tool-button" data-tool="pencil" type="button" aria-pressed="false" data-i18n-title="tools.pencil"><span class="tool-icon icon-pencil" aria-hidden="true"></span><span class="tool-label" data-i18n="tools.pencil">畫筆</span><kbd>P</kbd></button>
+          <button class="tool-button" data-tool="eraser" type="button" aria-pressed="false" data-i18n-title="tools.eraser"><span class="tool-icon icon-eraser" aria-hidden="true"></span><span class="tool-label" data-i18n="tools.eraser">橡皮擦</span><kbd>E</kbd></button>
+          <div class="tool-divider"></div>
+          <button class="tool-button" data-tool="rectangle" type="button" aria-pressed="false" data-i18n-title="tools.rectangle"><span class="tool-icon icon-rectangle" aria-hidden="true"></span><span class="tool-label" data-i18n="tools.rectangle">方框</span><kbd>R</kbd></button>
+          <button class="tool-button" data-tool="ellipse" type="button" aria-pressed="false" data-i18n-title="tools.ellipse"><span class="tool-icon icon-ellipse" aria-hidden="true"></span><span class="tool-label" data-i18n="tools.ellipse">圓形</span><kbd>O</kbd></button>
+          <button class="tool-button" data-tool="arrow" type="button" aria-pressed="false" data-i18n-title="tools.arrow"><span class="tool-icon icon-arrow" aria-hidden="true"></span><span class="tool-label" data-i18n="tools.arrow">箭頭</span><kbd>A</kbd></button>
+          <button class="tool-button" data-tool="line" type="button" aria-pressed="false" data-i18n-title="tools.line"><span class="tool-icon icon-line" aria-hidden="true"></span><span class="tool-label" data-i18n="tools.line">直線</span><kbd>L</kbd></button>
+          <button class="tool-button" data-tool="text" type="button" aria-pressed="false" data-i18n-title="tools.text"><span class="tool-icon icon-text" aria-hidden="true"></span><span class="tool-label" data-i18n="tools.text">文字</span><kbd>T</kbd></button>
+          <button class="tool-button" data-tool="note" type="button" aria-pressed="false" data-i18n-title="tools.note"><span class="tool-icon icon-note" aria-hidden="true"></span><span class="tool-label" data-i18n="tools.note">便條</span><kbd>N</kbd></button>
+          <button class="tool-button" data-tool="frame" type="button" aria-pressed="false" data-i18n-title="tools.frame"><span class="tool-icon icon-frame" aria-hidden="true"></span><span class="tool-label" data-i18n="tools.frame">框架</span><kbd>F</kbd></button>
+        </nav>
+
+        <section class="stage-shell" id="stage-shell" aria-label="共編畫布工作區" data-i18n-aria="stage.aria">
+          <div class="result-filter" role="group" aria-label="顯示結果" data-i18n-aria="layers.visibility">
+            <span class="result-filter-title" data-i18n="layers.visibility">顯示結果</span>
+            <label><input type="checkbox" id="show-human" checked><span class="filter-sample human-sample"></span><span data-i18n="layers.human">人類繪製</span></label>
+            <label><input type="checkbox" id="show-ai" checked><span class="filter-sample ai-sample"></span><span data-i18n="layers.ai">AI 繪製</span></label>
+          </div>
+
+          <div class="property-bar" aria-label="繪圖屬性" data-i18n-aria="property.aria">
+            <span class="property-label" data-i18n="property.stroke">線條</span>
+            <div class="swatches" id="stroke-swatches">
+              <button class="swatch selected" type="button" data-color="#20242c" aria-label="墨黑" data-i18n-aria="property.black" style="--swatch:#20242c"></button>
+              <button class="swatch" type="button" data-color="#2459d3" aria-label="鈷藍" data-i18n-aria="property.blue" style="--swatch:#2459d3"></button>
+              <button class="swatch" type="button" data-color="#c2413b" aria-label="磚紅" data-i18n-aria="property.red" style="--swatch:#c2413b"></button>
+              <button class="swatch" type="button" data-color="#2d7a55" aria-label="森林綠" data-i18n-aria="property.green" style="--swatch:#2d7a55"></button>
+            </div>
+            <label class="compact-field"><span data-i18n="property.width">粗細</span>
+              <select id="stroke-width">
+                <option value="2" data-i18n="property.thin">細</option>
+                <option value="3" data-i18n="property.medium">中</option>
+                <option value="5" data-i18n="property.thick">粗</option>
+              </select>
+            </label>
+            <label class="compact-field"><span data-i18n="property.fontSize">字級</span>
+              <select id="font-size">
+                <option value="18" data-i18n="property.small">小</option>
+                <option value="24" selected data-i18n="property.medium">中</option>
+                <option value="36" data-i18n="property.large">大</option>
+                <option value="52" data-i18n="property.xlarge">特大</option>
+              </select>
+            </label>
+            <label class="toggle-field"><input type="checkbox" id="fill-toggle"><span data-i18n="property.fill">填色</span></label>
+            <button class="quiet-button compact-action" id="duplicate-button" type="button" disabled data-i18n="property.duplicate">複製</button>
+          </div>
+
+          <div class="loading-state" id="loading-state">
+            <div class="loading-line wide"></div>
+            <div class="loading-line"></div>
+            <p data-i18n="loading.scene">正在讀取持續化場景</p>
+          </div>
+
+          <svg id="canvas" role="application" aria-label="可縮放的共編白板" data-i18n-aria="canvas.aria" tabindex="0">
+            <defs>
+              <pattern id="minor-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+                <rect width="24" height="24" fill="var(--canvas-paper)"></rect>
+                <circle cx="1" cy="1" r="0.8" fill="var(--grid-minor)"></circle>
+              </pattern>
+              <pattern id="major-grid" width="120" height="120" patternUnits="userSpaceOnUse">
+                <rect width="120" height="120" fill="url(#minor-grid)"></rect>
+              </pattern>
+              <marker id="arrow-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"></path>
+              </marker>
+            </defs>
+            <g id="camera">
+              <rect id="canvas-background" x="0" y="0" width="3200" height="2000" fill="url(#major-grid)"></rect>
+              <g id="elements-layer"></g>
+              <g id="draft-layer"></g>
+              <g id="selection-layer"></g>
+            </g>
+          </svg>
+
+          <textarea id="text-editor" class="canvas-text-editor" aria-label="輸入畫布文字" data-i18n-aria="editor.aria" hidden></textarea>
+
+          <div class="zoom-controls" aria-label="縮放控制" data-i18n-aria="zoom.aria">
+            <button type="button" id="zoom-out" aria-label="縮小" data-i18n="zoom.outText" data-i18n-aria="zoom.out">減</button>
+            <button type="button" id="zoom-label" title="重設並置中" data-i18n-title="zoom.reset">100%</button>
+            <button type="button" id="zoom-in" aria-label="放大" data-i18n="zoom.inText" data-i18n-aria="zoom.in">加</button>
+            <button type="button" id="fit-view" data-i18n="zoom.fit">適合內容</button>
+          </div>
+        </section>
+
+        <aside class="inspector" aria-label="畫布資訊與屬性" data-i18n-aria="inspector.aria">
+          <section class="inspector-section" id="selection-panel">
+            <div class="section-heading"><h2 data-i18n="selection.title">選取項目</h2></div>
+            <div id="selection-empty" class="selection-empty" data-i18n="selection.empty">選取元素後，可在這裡檢查作者與調整內容。</div>
+            <form id="selection-form" hidden>
+              <div class="author-card" id="selected-author"></div>
+              <div class="field-pair">
+                <label>X<input type="number" name="x"></label>
+                <label>Y<input type="number" name="y"></label>
+              </div>
+              <div class="field-pair">
+                <label><span data-i18n="selection.width">寬</span><input type="number" name="width" min="1"></label>
+                <label><span data-i18n="selection.height">高</span><input type="number" name="height" min="1"></label>
+              </div>
+              <label class="full-field"><span data-i18n="selection.text">文字</span><textarea name="text" rows="3"></textarea></label>
+              <button class="primary-button full-button" type="submit" data-i18n="selection.apply">套用修改</button>
+            </form>
+          </section>
+
+          <section class="inspector-section activity-section">
+            <div class="section-heading"><h2 data-i18n="activity.title">活動紀錄</h2><span id="revision-label">版本 0</span></div>
+            <div id="activity-list" class="activity-list"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
